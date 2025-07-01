@@ -1,0 +1,11 @@
+[package]
+name = "rust_auto_clicker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+enigo = "0.1"
+device_query = "1.1"
+iced = { version = "0.12", features = ["tokio"] }
+chrono = "0.4.41"
+rdev = "0.5"
