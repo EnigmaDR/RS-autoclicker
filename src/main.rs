@@ -1,6 +1,7 @@
 use iced::{
     executor, Application, Command, Element, Length, Settings, Subscription,
-    theme, widget::{button, column, text, slider},
+    theme,
+    widget::{button, column, row, text, slider},
 };
 use std::sync::{
     Arc,
@@ -11,7 +12,9 @@ use std::time::Duration;
 use enigo::{Enigo, MouseControllable, MouseButton};
 use rdev::{listen, EventType, Key};
 
-const DEFAULT_DELAY_MS: u32 = 250;
+
+
+const DEFAULT_DELAY_MS: u32 = 800;
 
 fn main() -> iced::Result {
     let clicking_flag = Arc::new(AtomicBool::new(false));
@@ -37,18 +40,36 @@ fn main() -> iced::Result {
 fn spawn_clicker_loop(flag: Arc<AtomicBool>, delay: Arc<AtomicUsize>) {
     thread::spawn(move || {
         let mut enigo = Enigo::new();
-
+        let mut last_time = std::time::Instant::now();
         loop {
             if flag.load(Ordering::Relaxed) {
-                enigo.mouse_click(MouseButton::Left);
-                println!("[AutoClicker] Clicked!");
+                println!("Starting auto-clicker in 500ms delay...");
+                std::thread::sleep(Duration::from_millis(1000));
+
+                // Optionally move mouse away
+                // enigo.mouse_move_to(2000, 1000);
+
+                while flag.load(Ordering::Relaxed) {
+                    enigo.mouse_click(MouseButton::Left);
+                    println!("[AutoClicker] Clicked!");
+                    let now = std::time::Instant::now();
+                    let elapsed = now.duration_since(last_time);
+                    println!(
+                        "[AutoClicker] time since last click: {:?}",
+                        elapsed
+                    );
+                    last_time = now;
+                    let sleep_time = delay.load(Ordering::Relaxed);
+                    std::thread::sleep(Duration::from_millis(sleep_time as u64));
+                }
+                println!("CLICKER THREAD STOPPED.");
             }
 
-            let sleep_time = delay.load(Ordering::Relaxed);
-            thread::sleep(Duration::from_millis(sleep_time as u64));
+            std::thread::sleep(Duration::from_millis(50));
         }
     });
 }
+
 
 fn hotkey_listener(flag: Arc<AtomicBool>, _delay: Arc<AtomicUsize>) -> Result<(), rdev::ListenError> {
     listen(move |event| {
@@ -90,11 +111,14 @@ enum Message {
     SliderChanged(u32),
 }
 
+
+
 struct AutoClickerApp {
     is_clicking: Arc<AtomicBool>,
     delay_ms: Arc<AtomicUsize>,
     slider_value: u32,
     is_toggling: bool,
+    last_toggle: std::time::Instant,
 }
 
 impl Application for AutoClickerApp {
@@ -103,17 +127,18 @@ impl Application for AutoClickerApp {
     type Theme = theme::Theme;
     type Flags = (Arc<AtomicBool>, Arc<AtomicUsize>);
 
-    fn new(flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        (
-            Self {
-                is_clicking: flags.0,
-                delay_ms: flags.1,
-                slider_value: DEFAULT_DELAY_MS,
-                is_toggling: false,
-            },
-            Command::none(),
-        )
-    }
+fn new(flags: Self::Flags) -> (Self, Command<Self::Message>) {
+    (
+        Self {
+            is_clicking: flags.0,
+            delay_ms: flags.1,
+            slider_value: DEFAULT_DELAY_MS,
+            is_toggling: true,
+            last_toggle: std::time::Instant::now() - std::time::Duration::from_secs(1),
+        },
+        Command::none()
+    )
+}
 
     fn title(&self) -> String {
         String::from("Rust Auto Clicker")
@@ -124,10 +149,16 @@ fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
 
     match message {
         Message::StartClicker => {
-            start_clicker(self.is_clicking.clone());
+            if !self.is_clicking.load(Ordering::Relaxed) {
+                self.is_clicking.store(true, Ordering::Relaxed);
+                println!("Clicker STARTED.");
+            }
         }
         Message::StopClicker => {
-            stop_clicker(self.is_clicking.clone());
+            if self.is_clicking.load(Ordering::Relaxed) {
+                self.is_clicking.store(false, Ordering::Relaxed);
+                println!("Clicker STOPPED.");
+            }
         }
         Message::SliderChanged(value) => {
             self.slider_value = value;
@@ -138,29 +169,45 @@ fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
 
     Command::none()
 }
+
+
 fn view(&self) -> Element<Self::Message> {
     let label = if self.is_clicking.load(Ordering::Relaxed) {
-        "Auto Clicker is RUNNING (Press F6 or Stop)"
+        "Auto Clicker is RUNNING"
     } else {
-        "Auto Clicker is STOPPED (Press F6 or Start)"
+        "Auto Clicker is STOPPED"
     };
 
-    let start_stop_button = if self.is_clicking.load(Ordering::Relaxed) {
-        button("Stop").on_press(Message::StopClicker)
-    } else {
-        button("Start").on_press(Message::StartClicker)
-    };
+let start_button = if self.is_clicking.load(Ordering::Relaxed) {
+    button("Start")
+} else {
+    button("Start").on_press(Message::StartClicker)
+};
+
+let stop_button = if self.is_clicking.load(Ordering::Relaxed) {
+    button("Stop").on_press(Message::StopClicker)
+} else {
+    button("Stop")
+};
+
+    let start_stop_row = row![
+        start_button,
+        stop_button
+    ]
+    .spacing(20);
 
     column![
         text(label),
         text(format!("Delay: {} ms", self.slider_value)),
         slider(10..=1000, self.slider_value, Message::SliderChanged)
             .step(10u32),
-        start_stop_button,
+        start_stop_row,
     ]
     .spacing(20)
     .padding(20)
     .width(Length::Shrink)
     .into()
 }
+
+
 }
